@@ -8,8 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from app.api.v1.endpoints import anime, system, user
 from app.core.config import settings
@@ -132,13 +131,6 @@ app.include_router(anime.router, prefix="/api", tags=["api"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(user.router, prefix="/api", tags=["user"])
 
-# Static Files (Frontend) - mount last
-# We need to serve index.html for 404s to support SPA routing (React Router)
-app.mount("/", StaticFiles(directory="app/static", html=True, check_dir=False), name="static")
-
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    """Fallback for SPA routing: return index.html if path not found."""
-    if request.url.path.startswith("/api"):
-        return JSONResponse({"ok": False, "error": "Not Found"}, status_code=404)
-    return FileResponse("app/static/index.html")
+    return JSONResponse({"ok": False, "error": "Not Found"}, status_code=404)
