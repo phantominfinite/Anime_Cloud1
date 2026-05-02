@@ -76,3 +76,29 @@ async def get_system_info() -> dict:
         "cache_bytes": cache_bytes,
     }
 
+
+from fastapi import Header, HTTPException
+from app.db.models import User, Anime, Episode
+from sqlalchemy import select, func
+
+@router.get('/admin/analytics')
+async def admin_analytics(
+    x_admin_api_key: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    if not settings.ADMIN_API_KEY or x_admin_api_key != settings.ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail='Forbidden')
+
+    users = await db.scalar(select(func.count(User.id)))
+    anime_count = await db.scalar(select(func.count(Anime.id)))
+    episodes = await db.scalar(select(func.count(Episode.id)))
+
+    return {
+        'ok': True,
+        'analytics': {
+            'users': users or 0,
+            'animes': anime_count or 0,
+            'episodes': episodes or 0,
+            'active_websockets': len(manager.active_connections),
+        }
+    }
