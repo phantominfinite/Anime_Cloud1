@@ -4,22 +4,17 @@
 
 @layer base {
   body {
-    @apply bg-darker text-white font-vazir selection:bg-primary selection:text-white;
+    @apply bg-darker text-white font-vazir selection:bg-fuchsia-500 selection:text-white;
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(217, 70, 239, 0.18), transparent 35%),
+      radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.14), transparent 30%),
+      linear-gradient(to bottom, #050508, #09090f 35%, #050508);
+    min-height: 100vh;
   }
 }
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-.glass {
-  @apply bg-dark/80 backdrop-blur-xl border border-white/5;
-}
-
-.glass-heavy {
-  @apply bg-dark/90 backdrop-blur-2xl border border-white/10;
-}
+.glass { @apply border border-white/10 bg-zinc-900/60 backdrop-blur-xl; }
+.glass-heavy { @apply border border-white/15 bg-zinc-900/80 backdrop-blur-2xl; }
