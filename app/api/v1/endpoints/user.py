@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 from app.db.session import get_db
 from app.db.models import User, UserAnime
 from app.services.auth import get_current_user, require_user
+from app.services.jwt_auth import create_access_token, get_current_jwt_user
+from app.services.recommendation import recommendation_service
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -163,4 +165,24 @@ async def continue_watching(user: User = Depends(require_user), db: AsyncSession
             }
             for it in items
         ],
+    }
+
+
+@router.post("/auth/jwt")
+async def jwt_login(user: User = Depends(require_user)):
+    token = create_access_token(str(user.id), extra_claims={"tg": user.telegram_id})
+    return {"ok": True, "access_token": token, "token_type": "bearer"}
+
+@router.get("/user/dashboard")
+async def user_dashboard(user: User = Depends(get_current_jwt_user), db: AsyncSession = Depends(get_db)):
+    library = (await db.execute(select(UserAnime).filter(UserAnime.user_id == user.id))).scalars().all()
+    recs = await recommendation_service.recommend_for_user(db, user.id)
+    return {
+        "ok": True,
+        "stats": {
+            "library_count": len(library),
+            "favorites": len([x for x in library if x.is_favorite]),
+            "completed": len([x for x in library if x.status == "completed"]),
+        },
+        "recommendations": recs,
     }

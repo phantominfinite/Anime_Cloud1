@@ -3,7 +3,8 @@ import { useParams } from 'react-router-dom';
 import Plyr, { type APITypes } from 'plyr-react';
 import 'plyr-react/plyr.css';
 import { motion } from 'framer-motion';
-import { MessageCircle, ListVideo } from 'lucide-react';
+import { MessageCircle, ListVideo, TimerReset, Users } from 'lucide-react';
+import { WatchPartyOverlay } from '../components/WatchPartyOverlay';
 
 import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData } from '../services/api';
 
@@ -33,6 +34,7 @@ export const Watch = () => {
 
   const playerRef = useRef<APITypes>(null);
   const initData = useMemo(() => getTelegramInitData(), []);
+  const roomId = useMemo(() => `anime-${id || 'global'}`, [id]);
 
   const selectEpisodeFromHash = (eps: Episode[]) => {
     const hash = window.location.hash || '';
@@ -108,8 +110,8 @@ export const Watch = () => {
       title: currentEp.label || `Episode ${currentEp.episode_number}`,
       sources: [
         {
-          src: currentEp.url,
-          type: 'video/mp4',
+          src: currentEp.url.includes('/stream/') ? currentEp.url.replace('/stream/', '/stream/hls/') + '/master.m3u8' : currentEp.url,
+          type: 'application/x-mpegURL',
         },
       ],
     };
@@ -193,6 +195,35 @@ export const Watch = () => {
                   );
                 })}
               </div>
+            </div>
+
+
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-3">
+              <button
+                onClick={() => { const plyr = playerRef.current?.plyr; if (plyr) plyr.currentTime = 90; }}
+                className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs hover:bg-white/20"
+              >
+                <TimerReset className="h-3.5 w-3.5" /> Skip Intro
+              </button>
+              <div className="ml-auto inline-flex items-center gap-1 text-xs text-white/70">
+                <Users className="h-3.5 w-3.5" /> Watch Party
+              </div>
+              <WatchPartyOverlay
+                roomId={roomId}
+                userId={(anime?.mal_id || 'guest') + '-viewer'}
+                getLocalState={() => ({
+                  positionS: playerRef.current?.plyr?.currentTime || 0,
+                  isPlaying: !(playerRef.current?.plyr?.paused ?? true),
+                })}
+                onRemoteSync={(positionS, isPlaying) => {
+                  const plyr = playerRef.current?.plyr;
+                  if (!plyr) return;
+                  if (Math.abs((plyr.currentTime || 0) - positionS) > 2) plyr.currentTime = positionS;
+                  if (isPlaying && plyr.paused) plyr.play();
+                  if (!isPlaying && !plyr.paused) plyr.pause();
+                }}
+              />
             </div>
 
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">

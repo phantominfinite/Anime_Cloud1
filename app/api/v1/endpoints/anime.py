@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from typing import List, Optional, Dict, Any
@@ -16,6 +16,9 @@ from app.services.search import search_service
 from app.core.config import settings
 from app.services.auth import get_current_user
 from app.services.ratelimit import rate_limiter
+from app.services.hls_engine import hls_engine
+from app.services.watch_party import watch_party_service
+from pathlib import Path
 
 router = APIRouter()
 
@@ -445,3 +448,33 @@ async def stream_video(
 
     return StreamingResponse(iterfile(), status_code=status_code, media_type=content_type, headers=headers)
 
+
+
+@router.get("/stream/hls/{file_id}/master.m3u8")
+async def stream_hls_master(file_id: str):
+    """Generate ABR HLS playlist on-demand and return master manifest."""
+    source = Path(f"tmp/source/{file_id}.mp4")
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Source media not found in cache")
+    master = await hls_engine.ensure_hls(source, file_id)
+    return FileResponse(master, media_type="application/vnd.apple.mpegurl")
+
+
+@router.websocket("/watch-party/{room_id}")
+async def watch_party_socket(websocket: WebSocket, room_id: str):
+    user_id = websocket.query_params.get("user_id", "guest")
+    state = await watch_party_service.join(room_id, websocket, user_id)
+    await websocket.send_json({"type": "state", "position_s": state.position_s, "is_playing": state.is_playing})
+    try:
+        while True:
+            payload = await websocket.receive_json()
+            state = await watch_party_service.apply_event(room_id, payload)
+            await watch_party_service.broadcast(room_id, {
+                "type": "sync",
+                "position_s": state.position_s,
+                "is_playing": state.is_playing,
+                "updated_at": state.updated_at,
+                "by": user_id,
+            })
+    except WebSocketDisconnect:
+        await watch_party_service.leave(room_id, websocket)
