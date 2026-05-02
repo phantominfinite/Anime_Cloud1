@@ -34,10 +34,7 @@ async def lifespan(app: FastAPI):
     await ensure_schema(engine)
 
     logger.info("Initializing Redis...")
-    try:
-        await redis_service.connect()
-    except Exception as e:
-        logger.warning(f"Redis unavailable at startup: {e}")
+    await redis_service.connect()
 
     logger.info("Initializing Telegram Service...")
     telegram_enabled = bool(settings.API_ID and settings.API_HASH and settings.BOT_TOKEN)
