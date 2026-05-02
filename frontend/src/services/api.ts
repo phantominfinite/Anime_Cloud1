@@ -1,157 +1,97 @@
 import axios, { AxiosError } from 'axios';
 
-// Telegram WebApp init data helper (for auth)
+interface TelegramWebApp {
+  initData?: string;
+}
+
+interface TelegramRoot {
+  WebApp?: TelegramWebApp;
+}
+
+interface TelegramWindow extends Window {
+  Telegram?: TelegramRoot;
+}
+
+interface ImportMetaEnvWithApi {
+  VITE_API_BASE?: string;
+}
+
 export const getTelegramInitData = (): string => {
-  try {
-    return (window as any)?.Telegram?.WebApp?.initData || '';
-  } catch {
-    return '';
-  }
+  const tgWindow = window as TelegramWindow;
+  return tgWindow.Telegram?.WebApp?.initData ?? '';
 };
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || '/api';
+const env = import.meta.env as ImportMetaEnvWithApi;
+const API_BASE = env.VITE_API_BASE || '/api';
 
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 20000,
-});
+const api = axios.create({ baseURL: API_BASE, timeout: 20000 });
+export const jikanApi = axios.create({ baseURL: 'https://api.jikan.moe/v4', timeout: 20000 });
 
-export const jikanApi = axios.create({
-  baseURL: 'https://api.jikan.moe/v4',
-  timeout: 20000,
-});
-
-// Attach Telegram init data automatically when available
 api.interceptors.request.use((config) => {
   const initData = getTelegramInitData();
   if (initData) {
     config.headers = config.headers || {};
-    (config.headers as any)['X-Telegram-Init-Data'] = initData;
+    config.headers['X-Telegram-Init-Data'] = initData;
   }
   return config;
 });
 
-// Helpful error normalizer
+type ErrorPayload = { detail?: string; error?: string };
 const normalizeError = (e: unknown): Error => {
   if (axios.isAxiosError(e)) {
-    const err = e as AxiosError<any>;
-    const msg =
-      (err.response?.data && (err.response.data.detail || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
+    const err = e as AxiosError<ErrorPayload>;
+    const msg = err.response?.data?.detail || err.response?.data?.error || err.message || 'Request failed';
     return new Error(msg);
   }
   return e instanceof Error ? e : new Error('Unknown error');
 };
 
-// -------------------- Backend API --------------------
-
 export type AvailableAnime = { mal_id: string; episodes: number };
 export type AnimeLite = { mal_id: string; title: string; image_url?: string | null; score?: number | null; type?: string | null; year?: number | null; description?: string | null };
 export type Episode = { episode_number: string; label?: string | null; quality?: string | null; url: string };
 export type AnimeWithEpisodes = { anime: AnimeLite; episodes: Episode[] };
+export type CommentItem = { id: number; user?: string; user_name?: string; text: string; likes: number; date?: string };
+export type CommentsResponse = { items?: CommentItem[]; comments?: CommentItem[] };
+export type ContinueItem = { anime_mal_id: string; progress_episode: string; progress_time?: number | null; status?: string };
+export type ContinueResponse = { items: ContinueItem[] };
+export type MeResponse = { user?: { first_name?: string; username?: string; telegram_id?: string; is_admin?: boolean } };
 
-export const getAvailable = async (): Promise<AvailableAnime[]> => {
-  try {
-    const res = await api.get('/anime/available');
-    return res.data.items || [];
-  } catch (e) {
-    throw normalizeError(e);
-  }
+type JikanAnimeImage = { jpg?: { large_image_url?: string } };
+export type JikanAnime = { mal_id: number; title: string; image_url?: string; images?: JikanAnimeImage; score?: number | null };
+export type SearchFilters = { status?: string; type?: string };
+
+export const getAvailable = async (): Promise<AvailableAnime[]> => (await api.get<{ items: AvailableAnime[] }>('/anime/available')).data.items || [];
+export const getAnime = async (malId: string): Promise<AnimeWithEpisodes> => (await api.get<AnimeWithEpisodes>(`/anime/${malId}`)).data;
+export const getAnimeEpisodes = async (malId: string): Promise<Episode[]> => (await api.get<Episode[]>(`/anime/${malId}/episodes`)).data || [];
+
+export const getComments = async (malId: string): Promise<CommentsResponse> => {
+  try { return (await api.get<CommentsResponse>(`/anime/${malId}/comments`)).data; } catch (e) { throw normalizeError(e); }
+};
+export const postComment = async (malId: string, user_name: string, text: string): Promise<{ ok: boolean }> => {
+  try { return (await api.post<{ ok: boolean }>(`/anime/${malId}/comments`, { user_name, text })).data; } catch (e) { throw normalizeError(e); }
+};
+export const likeComment = async (commentId: number): Promise<{ ok: boolean; likes: number }> => {
+  try { return (await api.post<{ ok: boolean; likes: number }>(`/comments/${commentId}/like`)).data; } catch (e) { throw normalizeError(e); }
+};
+export const getMe = async (): Promise<MeResponse> => {
+  try { return (await api.get<MeResponse>('/user/me')).data; } catch (e) { throw normalizeError(e); }
+};
+export const getLibrary = async (): Promise<unknown> => {
+  try { return (await api.get('/user/library')).data; } catch (e) { throw normalizeError(e); }
+};
+export const getContinueWatching = async (): Promise<ContinueResponse> => {
+  try { return (await api.get<ContinueResponse>('/user/continue')).data; } catch (e) { throw normalizeError(e); }
+};
+export const updateProgress = async (animeMalId: string, episode: string, positionSec: number): Promise<{ ok: boolean }> => {
+  try { return (await api.post<{ ok: boolean }>(`/user/progress/${animeMalId}/${episode}`, { progress_time: Math.floor(positionSec) })).data; } catch (e) { throw normalizeError(e); }
 };
 
-export const getAnime = async (malId: string): Promise<AnimeWithEpisodes> => {
-  try {
-    const res = await api.get(`/anime/${malId}`);
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const getAnimeEpisodes = async (malId: string): Promise<Episode[]> => {
-  try {
-    const res = await api.get(`/anime/${malId}/episodes`);
-    return res.data || [];
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const getComments = async (malId: string) => {
-  try {
-    const res = await api.get(`/anime/${malId}/comments`);
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const postComment = async (malId: string, user_name: string, text: string) => {
-  try {
-    const res = await api.post(`/anime/${malId}/comments`, { user_name, text });
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const likeComment = async (commentId: number) => {
-  try {
-    const res = await api.post(`/comments/${commentId}/like`);
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const getMe = async () => {
-  try {
-    const res = await api.get('/user/me');
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const getLibrary = async () => {
-  try {
-    const res = await api.get('/user/library');
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const getContinueWatching = async () => {
-  try {
-    const res = await api.get('/user/continue');
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-export const updateProgress = async (animeMalId: string, episode: string, positionSec: number) => {
-  try {
-    const res = await api.post(`/user/progress/${animeMalId}/${episode}`, {
-      progress_time: Math.floor(positionSec),
-    });
-    return res.data;
-  } catch (e) {
-    throw normalizeError(e);
-  }
-};
-
-// -------------------- Discovery (Jikan) --------------------
-
-export const searchAnime = async (query: string, filters?: any) => {
-  const params: any = { q: query, limit: 20 };
+export const searchAnime = async (query: string, filters?: SearchFilters): Promise<JikanAnime[]> => {
+  const params: { q: string; limit: number; status?: string; type?: string } = { q: query, limit: 20 };
   if (filters?.status) params.status = filters.status;
   if (filters?.type) params.type = filters.type;
-
   try {
-    const res = await jikanApi.get('/anime', { params });
+    const res = await jikanApi.get<{ data: JikanAnime[] }>('/anime', { params });
     return res.data.data;
   } catch (e) {
     throw normalizeError(e);

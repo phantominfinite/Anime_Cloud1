@@ -19,9 +19,9 @@ security = HTTPBearer(auto_error=False)
 
 
 def _secret() -> str:
-    secret = settings.SECRET_KEY or settings.ADMIN_API_KEY
+    secret = settings.SECRET_KEY
     if not secret:
-        raise RuntimeError("SECRET_KEY or ADMIN_API_KEY must be configured for JWT")
+        raise RuntimeError("SECRET_KEY must be configured for JWT")
     return secret
 
 

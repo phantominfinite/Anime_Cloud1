@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { PageShell } from '../components/PageShell';
 
 export default function Dashboard() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<{ ok?: boolean; stats?: { library_count?: number; favorites?: number; completed?: number } } | null>(null);
 
   useEffect(() => {
     fetch('/api/user/dashboard', { headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } })

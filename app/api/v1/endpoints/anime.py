@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from starlette import status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, update
 from typing import List, Optional, Dict, Any
 import time
 import logging
@@ -253,21 +254,24 @@ async def post_comment(
 
 @router.post("/comments/{comment_id}/like")
 async def like_comment(comment_id: int, db: AsyncSession = Depends(get_db)):
-    comment = await db.get(Comment, comment_id)
-    if not comment:
+    result = await db.execute(
+        update(Comment)
+        .where(Comment.id == comment_id)
+        .values(likes=Comment.likes + 1)
+        .returning(Comment.id, Comment.anime_mal_id, Comment.likes)
+    )
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
-        
-    comment.likes += 1
     await db.commit()
-    await db.refresh(comment)
     
     # Broadcast like update to the room
-    await manager.broadcast_room(comment.anime_mal_id, {
+    await manager.broadcast_room(row.anime_mal_id, {
         "type": "comment_like",
-        "data": {"id": comment.id, "anime_mal_id": comment.anime_mal_id, "likes": comment.likes},
+        "data": {"id": row.id, "anime_mal_id": row.anime_mal_id, "likes": row.likes},
     })
     
-    return {"ok": True, "likes": comment.likes}
+    return {"ok": True, "likes": row.likes}
 
 @router.get("/search", response_model=Dict[str, List[Dict[str, Any]]])
 async def search(q: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:
@@ -452,11 +456,16 @@ async def stream_video(
 
 @router.get("/stream/hls/{file_id}/master.m3u8")
 async def stream_hls_master(file_id: str):
-    """Generate ABR HLS playlist on-demand and return master manifest."""
+    """Generate ABR HLS playlist asynchronously and return manifest when ready."""
     source = Path(f"tmp/source/{file_id}.mp4")
     if not source.exists():
         raise HTTPException(status_code=404, detail="Source media not found in cache")
-    master = await hls_engine.ensure_hls(source, file_id)
+    master, ready = await hls_engine.ensure_hls_async(source, file_id)
+    if not ready:
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"status": "processing", "file_id": file_id, "poll_url": f"/api/stream/hls/{file_id}/master.m3u8"},
+        )
     return FileResponse(master, media_type="application/vnd.apple.mpegurl")
 
 
@@ -469,7 +478,7 @@ async def watch_party_socket(websocket: WebSocket, room_id: str):
         while True:
             payload = await websocket.receive_json()
             state = await watch_party_service.apply_event(room_id, payload)
-            await watch_party_service.broadcast(room_id, {
+            await watch_party_service.publish(room_id, {
                 "type": "sync",
                 "position_s": state.position_s,
                 "is_playing": state.is_playing,
