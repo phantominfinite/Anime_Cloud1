@@ -13,3 +13,4 @@ redis==5.0.1
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
 httpx
+python-jose[cryptography]==3.3.0
