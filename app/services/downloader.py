@@ -1,9 +1,10 @@
 import asyncio
 import logging
 from typing import Dict, Tuple, Optional
+
 from pyrogram import Client
 from pyrogram.raw.functions.upload import GetFile
-from pyrogram.raw.types import InputFileLocation
+from pyrogram.errors import RPCError
 from pyrogram.file_id import FileId
 
 from app.services.cache import cache_service
@@ -39,8 +40,9 @@ class SmartDownloader:
         # 3. Wait for result
         try:
             await future
-        except Exception:
+        except (OSError, RPCError, ValueError) as exc:
             # Error is already logged in worker
+            logger.warning("Chunk wait failed for %s/%s: %s", file_id, chunk_index, exc, exc_info=True)
             return None
             
         # 4. Check cache again (it should be there now)
@@ -109,8 +111,8 @@ class SmartDownloader:
                 if not future.done():
                     future.set_result(True)
 
-            except Exception as e:
-                logger.error(f"Error in download worker for {file_id}/{chunk_index}: {e}")
+            except (RPCError, OSError, ValueError) as e:
+                logger.error(f"Error in download worker for {file_id}/{chunk_index}: {e}", exc_info=True)
                 if not future.done():
                     future.set_exception(e)
             finally:
