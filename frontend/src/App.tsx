@@ -7,6 +7,7 @@ import Search from './pages/Search';
 import Library from './pages/Library';
 import Profile from './pages/Profile';
 import Dashboard from './pages/Dashboard';
+import { FloatingPlayer } from './components/FloatingPlayer';
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -29,6 +30,7 @@ const App = () => (
   <Router>
     <div className="min-h-screen bg-black text-white font-sans antialiased">
       <AnimatedRoutes />
+      <FloatingPlayer />
       <Navbar />
     </div>
   </Router>
