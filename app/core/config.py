@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     # --- Security / admin ---
     # IMPORTANT: Do NOT ship with a default key. In production, this must be set.
     ADMIN_API_KEY: Optional[str] = Field(default=None, env="ADMIN_API_KEY")
+    SECRET_KEY: Optional[str] = Field(default=None, env="SECRET_KEY")
 
     # Comma-separated origins. Use "*" only for development.
     CORS_ORIGINS: str = Field("*", env="CORS_ORIGINS")

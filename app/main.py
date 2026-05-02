@@ -13,7 +13,6 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.endpoints import anime, system, user
 from app.core.config import settings
-from app.db.schema import ensure_schema
 from app.db.session import Base, engine
 from app.services.redis_cache import redis_service
 from app.services.telegram import telegram_service
@@ -27,11 +26,12 @@ async def lifespan(app: FastAPI):
     # --- Startup ---
     if settings.is_production and not settings.ADMIN_API_KEY:
         raise RuntimeError("ADMIN_API_KEY must be set when ENVIRONMENT=production")
+    if settings.is_production and not settings.SECRET_KEY:
+        raise RuntimeError("SECRET_KEY must be set when ENVIRONMENT=production")
 
     logger.info("Initializing Database...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    await ensure_schema(engine)
 
     logger.info("Initializing Redis...")
     await redis_service.connect()

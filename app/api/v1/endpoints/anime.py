@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, Query, W
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from starlette import status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, update
 from typing import List, Optional, Dict, Any
 import time
 import logging
@@ -254,21 +254,24 @@ async def post_comment(
 
 @router.post("/comments/{comment_id}/like")
 async def like_comment(comment_id: int, db: AsyncSession = Depends(get_db)):
-    comment = await db.get(Comment, comment_id)
-    if not comment:
+    result = await db.execute(
+        update(Comment)
+        .where(Comment.id == comment_id)
+        .values(likes=Comment.likes + 1)
+        .returning(Comment.id, Comment.anime_mal_id, Comment.likes)
+    )
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="Comment not found")
-        
-    comment.likes += 1
     await db.commit()
-    await db.refresh(comment)
     
     # Broadcast like update to the room
-    await manager.broadcast_room(comment.anime_mal_id, {
+    await manager.broadcast_room(row.anime_mal_id, {
         "type": "comment_like",
-        "data": {"id": comment.id, "anime_mal_id": comment.anime_mal_id, "likes": comment.likes},
+        "data": {"id": row.id, "anime_mal_id": row.anime_mal_id, "likes": row.likes},
     })
     
-    return {"ok": True, "likes": comment.likes}
+    return {"ok": True, "likes": row.likes}
 
 @router.get("/search", response_model=Dict[str, List[Dict[str, Any]]])
 async def search(q: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)) -> Dict[str, List[Dict[str, Any]]]:

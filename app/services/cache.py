@@ -7,6 +7,7 @@ import os
 import shutil
 
 import aiofiles
+from redis.exceptions import RedisError
 
 from app.core.config import settings
 from app.services.redis_cache import redis_service
@@ -34,27 +35,36 @@ class CacheService:
         path = self._get_chunk_path(file_id, chunk_index)
         if not os.path.exists(path):
             return None
-        asyncio.create_task(redis_service.update_access(path))
-        async with aiofiles.open(path, mode="rb") as f:
-            return await f.read()
+        try:
+            asyncio.create_task(redis_service.update_access(path))
+            async with aiofiles.open(path, mode="rb") as f:
+                return await f.read()
+        except (OSError, RedisError) as exc:
+            logger.error("Failed reading cache chunk %s/%s: %s", file_id, chunk_index, exc, exc_info=True)
+            return None
 
     async def save_chunk(self, file_id: str, chunk_index: int, data: bytes):
         path = self._get_chunk_path(file_id, chunk_index)
         temp_path = f"{path}.tmp"
         previous_size = os.path.getsize(path) if os.path.exists(path) else 0
 
-        async with aiofiles.open(temp_path, mode="wb") as f:
-            await f.write(data)
-        os.replace(temp_path, path)
+        try:
+            async with aiofiles.open(temp_path, mode="wb") as f:
+                await f.write(data)
+            os.replace(temp_path, path)
 
-        current_size = os.path.getsize(path)
-        delta = current_size - previous_size
-        if delta:
-            client = await redis_service._get_client()
-            await client.incrby(self._size_key, delta)
+            current_size = os.path.getsize(path)
+            delta = current_size - previous_size
+            if delta:
+                client = await redis_service._get_client()
+                await client.incrby(self._size_key, delta)
 
-        asyncio.create_task(redis_service.update_access(path))
-        asyncio.create_task(self._check_cache_size())
+            asyncio.create_task(redis_service.update_access(path))
+            asyncio.create_task(self._check_cache_size())
+        except (OSError, RedisError) as exc:
+            logger.error("Failed saving cache chunk %s/%s: %s", file_id, chunk_index, exc, exc_info=True)
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     async def _check_cache_size(self):
         if self._evict_lock.locked():
@@ -72,8 +82,12 @@ class CacheService:
                     if not os.path.exists(fp):
                         continue
                     size = os.path.getsize(fp)
-                    os.remove(fp)
-                    await client.decrby(self._size_key, size)
+                    try:
+                        os.remove(fp)
+                        await client.decrby(self._size_key, size)
+                    except (OSError, RedisError) as exc:
+                        logger.warning("Failed evicting cache file %s: %s", fp, exc, exc_info=True)
+                        continue
                     total_size -= size
                     if total_size <= max_size:
                         break
