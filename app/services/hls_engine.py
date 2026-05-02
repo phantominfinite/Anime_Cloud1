@@ -4,6 +4,8 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.services.redis_cache import redis_service
+
 
 @dataclass(frozen=True)
 class HLSProfile:
@@ -33,12 +35,27 @@ class HLSEngine:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    async def ensure_hls(self, source_file: Path, episode_id: str) -> Path:
+    def _status_key(self, episode_id: str) -> str:
+        return f"hls:job:{episode_id}"
+
+    async def get_status(self, episode_id: str) -> dict | None:
+        return await redis_service.get(self._status_key(episode_id))
+
+    async def ensure_hls_async(self, source_file: Path, episode_id: str) -> tuple[Path, bool]:
         out_dir = self._episode_dir(episode_id)
         master = out_dir / "master.m3u8"
         if master.exists():
-            return master
+            return master, True
 
+        status = await self.get_status(episode_id)
+        if status and status.get("status") == "processing":
+            return master, False
+
+        await redis_service.set(self._status_key(episode_id), {"status": "processing"}, expire=3600)
+        asyncio.create_task(self._transcode(source_file, episode_id, master))
+        return master, False
+
+    async def _transcode(self, source_file: Path, episode_id: str, master: Path) -> None:
         cmd = [self._ffmpeg_bin, "-y", "-i", str(source_file)]
         var_stream_map: list[str] = []
         for idx, profile in enumerate(PROFILES):
@@ -53,6 +70,7 @@ class HLSEngine:
             ])
             var_stream_map.append(f"v:{idx},a:{idx},name:{profile.name}")
 
+        out_dir = self._episode_dir(episode_id)
         cmd.extend([
             "-f", "hls",
             "-hls_time", "6",
@@ -67,8 +85,13 @@ class HLSEngine:
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
-            raise RuntimeError(f"FFmpeg HLS generation failed: {stderr.decode('utf-8', errors='ignore')}")
-        return master
+            await redis_service.set(
+                self._status_key(episode_id),
+                {"status": "failed", "error": stderr.decode("utf-8", errors="ignore")[:1024]},
+                expire=3600,
+            )
+            return
+        await redis_service.set(self._status_key(episode_id), {"status": "ready", "manifest": str(master)}, expire=24 * 3600)
 
 
 hls_engine = HLSEngine()

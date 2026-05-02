@@ -8,12 +8,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from app.api.v1.endpoints import anime, system, user
 from app.core.config import settings
-from app.db.schema import ensure_schema
 from app.db.session import Base, engine
 from app.services.redis_cache import redis_service
 from app.services.telegram import telegram_service
@@ -27,17 +25,15 @@ async def lifespan(app: FastAPI):
     # --- Startup ---
     if settings.is_production and not settings.ADMIN_API_KEY:
         raise RuntimeError("ADMIN_API_KEY must be set when ENVIRONMENT=production")
+    if settings.is_production and not settings.SECRET_KEY:
+        raise RuntimeError("SECRET_KEY must be set when ENVIRONMENT=production")
 
     logger.info("Initializing Database...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    await ensure_schema(engine)
 
     logger.info("Initializing Redis...")
-    try:
-        await redis_service.connect()
-    except Exception as e:
-        logger.warning(f"Redis unavailable at startup: {e}")
+    await redis_service.connect()
 
     logger.info("Initializing Telegram Service...")
     telegram_enabled = bool(settings.API_ID and settings.API_HASH and settings.BOT_TOKEN)
@@ -135,13 +131,6 @@ app.include_router(anime.router, prefix="/api", tags=["api"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(user.router, prefix="/api", tags=["user"])
 
-# Static Files (Frontend) - mount last
-# We need to serve index.html for 404s to support SPA routing (React Router)
-app.mount("/", StaticFiles(directory="app/static", html=True, check_dir=False), name="static")
-
 @app.exception_handler(404)
 async def not_found_handler(request: Request, exc):
-    """Fallback for SPA routing: return index.html if path not found."""
-    if request.url.path.startswith("/api"):
-        return JSONResponse({"ok": False, "error": "Not Found"}, status_code=404)
-    return FileResponse("app/static/index.html")
+    return JSONResponse({"ok": False, "error": "Not Found"}, status_code=404)

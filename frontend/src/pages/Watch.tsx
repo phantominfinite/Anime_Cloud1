@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import Plyr, { type APITypes } from 'plyr-react';
 import 'plyr-react/plyr.css';
@@ -7,7 +8,7 @@ import { MessageCircle, ListVideo, TimerReset, Users } from 'lucide-react';
 import { WatchPartyOverlay } from '../components/WatchPartyOverlay';
 import { usePlayerStore } from '../store/usePlayerStore';
 
-import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData } from '../services/api';
+import { getAnime, getComments, postComment, likeComment, updateProgress, getTelegramInitData, type CommentItem } from '../services/api';
 
 type AnimeLite = {
   mal_id: string;
@@ -23,13 +24,8 @@ type Episode = { episode_number: string; label?: string | null; quality?: string
 
 export const Watch = () => {
   const { id } = useParams<{ id: string }>();
-  const [anime, setAnime] = useState<AnimeLite | null>(null);
-  const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [currentEp, setCurrentEp] = useState<Episode | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentText, setCommentText] = useState('');
   const [commentName, setCommentName] = useState('Anonymous');
 
@@ -49,40 +45,30 @@ export const Watch = () => {
     return eps[0] || null;
   };
 
-  useEffect(() => {
-    const load = async () => {
-      if (!id) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await getAnime(id);
-        setAnime(res.anime);
-        setEpisodes(res.episodes || []);
-        setCurrentEp(selectEpisodeFromHash(res.episodes || []));
-      } catch (e: any) {
-        setError(e?.message || 'Failed to load anime');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  const animeQuery = useQuery({
+    queryKey: ['watch-anime', id],
+    queryFn: () => getAnime(id as string),
+    enabled: Boolean(id),
+  });
 
-  const loadComments = async () => {
-    if (!id) return;
-    try {
-      const res = await getComments(id);
-      setComments(res.items || res.comments || []);
-    } catch {
-      setComments([]);
+  useEffect(() => {
+    if (animeQuery.data?.episodes) {
+      setCurrentEp(selectEpisodeFromHash(animeQuery.data.episodes));
     }
-  };
+  }, [animeQuery.data]);
+
+  const commentsQuery = useQuery({
+    queryKey: ['comments', id],
+    queryFn: async () => {
+      const res = await getComments(id as string);
+      return res.items || res.comments || [];
+    },
+    enabled: Boolean(id),
+  });
 
   useEffect(() => {
-    loadComments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    setComments(commentsQuery.data ?? []);
+  }, [commentsQuery.data]);
 
   // Save progress periodically (best-effort)
   useEffect(() => {
@@ -119,32 +105,29 @@ export const Watch = () => {
     };
   }, [currentEp]);
 
-  const submitComment = async () => {
-    if (!id) return;
-    if (!commentText.trim()) return;
-    try {
-      await postComment(id, commentName || 'Anonymous', commentText.trim());
+  const queryClient = useQueryClient();
+  const commentMutation = useMutation({
+    mutationFn: async () => postComment(id as string, commentName || 'Anonymous', commentText.trim()),
+    onSuccess: async () => {
       setCommentText('');
-      await loadComments();
-    } catch (e: any) {
-      setError(e?.message || 'Failed to post comment');
-    }
+      await queryClient.invalidateQueries({ queryKey: ['comments', id] });
+    },
+  });
+  const likeMutation = useMutation({
+    mutationFn: likeComment,
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['comments', id] }); },
+  });
+  const submitComment = async () => {
+    if (!id || !commentText.trim()) return;
+    await commentMutation.mutateAsync();
   };
+  const like = async (commentId: number) => { await likeMutation.mutateAsync(commentId); };
 
-  const like = async (commentId: number) => {
-    try {
-      await likeComment(commentId);
-      await loadComments();
-    } catch {
-      // ignore
-    }
-  };
-
-  if (loading) return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
-
-  if (error) return <div className="p-4 text-red-300 pb-24">{error}</div>;
-
-  if (!anime) return <div className="p-4 text-white pb-24">Not found.</div>;
+  if (animeQuery.isLoading) return <div className="flex h-screen items-center justify-center text-white">Loading...</div>;
+  if (animeQuery.error) return <div className="p-4 text-red-300 pb-24">{(animeQuery.error as Error).message}</div>;
+  if (!animeQuery.data?.anime) return <div className="p-4 text-white pb-24">Not found.</div>;
+  const anime = animeQuery.data.anime as AnimeLite;
+  const episodes = animeQuery.data.episodes as Episode[];
 
   return (
     <div className="pb-24 text-white">
@@ -170,7 +153,7 @@ export const Watch = () => {
           <div className="lg:col-span-2">
             <div className="rounded-2xl overflow-hidden border border-white/10 bg-black/40">
               {playerSource ? (
-                <Plyr ref={playerRef} source={playerSource as any} options={{ autoplay: true }} />
+                <Plyr ref={playerRef} source={playerSource} options={{ autoplay: true }} />
               ) : (
                 <div className="p-6 text-sm text-white/70">هیچ اپیزودی پیدا نشد.</div>
               )}
