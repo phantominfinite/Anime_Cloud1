@@ -8,22 +8,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        dark: '#050505',
-        darker: '#020202',
-        surface: '#121215',
-        primary: '#6366f1', // Indigo-500 default
-        primaryGlow: 'rgba(99, 102, 241, 0.5)',
-        accent: '#f43f5e', // Rose-500
+        dark: '#020203',
+        darker: '#000000',
+        surface: 'rgba(20, 20, 25, 0.7)',
+        primary: {
+          DEFAULT: '#8b5cf6', // Violet-500
+          glow: 'rgba(139, 92, 246, 0.5)',
+        },
+        secondary: {
+          DEFAULT: '#ec4899', // Pink-500
+          glow: 'rgba(236, 72, 153, 0.5)',
+        },
+        accent: '#06b6d4', // Cyan-500
       },
       fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
         vazir: ['Vazirmatn', 'sans-serif'],
+      },
+      backdropBlur: {
+        xs: '2px',
+      },
+      boxShadow: {
+        'glow-primary': '0 0 20px rgba(139, 92, 246, 0.3)',
+        'glow-secondary': '0 0 20px rgba(236, 72, 153, 0.3)',
       },
       animation: {
         'float': 'float 6s ease-in-out infinite',
         'pulse-glow': 'pulseGlow 4s ease-in-out infinite',
-        'slide-up': 'slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-        'fade-in': 'fadeIn 0.4s ease-out forwards',
-        'scale-in': 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+        'shimmer': 'shimmer 2s linear infinite',
       },
       keyframes: {
         float: {
@@ -34,18 +46,10 @@ export default {
           '0%, 100%': { opacity: 0.6, boxShadow: '0 0 20px var(--color-primary-glow)' },
           '50%': { opacity: 0.3, boxShadow: '0 0 10px var(--color-primary-glow)' },
         },
-        slideUp: {
-          '0%': { transform: 'translateY(20px)', opacity: 0 },
-          '100%': { transform: 'translateY(0)', opacity: 1 },
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
         },
-        fadeIn: {
-          '0%': { opacity: 0 },
-          '100%': { opacity: 1 },
-        },
-        scaleIn: {
-          '0%': { transform: 'scale(0.9)', opacity: 0 },
-          '100%': { transform: 'scale(1)', opacity: 1 },
-        }
       }
     },
   },

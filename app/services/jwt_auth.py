@@ -44,9 +44,27 @@ async def get_current_jwt_user(
         payload = jwt.decode(token, _secret(), algorithms=[ALGORITHM])
         subject = payload.get("sub")
         if subject is None:
-            raise HTTPException(status_code=401, detail="Invalid token subject")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token is missing subject",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        # Check if token is expired explicitly for better error message
+        exp = payload.get("exp")
+        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     except JWTError as exc:
-        raise HTTPException(status_code=401, detail="Could not validate token") from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Could not validate credentials: {str(exc)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
     result = await db.execute(select(User).filter(User.id == int(subject)))
     user = result.scalars().first()

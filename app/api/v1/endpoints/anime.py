@@ -85,15 +85,13 @@ async def list_animes(
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Returns a list of all animes with their episodes.
-    
-    Args:
-        skip (int): Pagination offset.
-        limit (int): Pagination limit.
-        db (AsyncSession): Database session.
-        
-    Returns:
-        dict: Grouped episodes by Anime MAL ID.
     """
+    # Best-effort rate limit
+    if getattr(settings, "RATE_LIMIT_ENABLED", True):
+        rl = await rate_limiter.hit("api", "anonymous", 60, 60)
+        if not rl.allowed:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
     cache_key = f"anime_list:{skip}:{limit}"
     cached_data = await redis_service.get(cache_key)
     if cached_data:
@@ -137,11 +135,7 @@ async def available_animes(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]
 
 @router.get("/anime/{mal_id}", response_model=AnimeWithEpisodesOut)
 async def get_anime(mal_id: str, db: AsyncSession = Depends(get_db)) -> AnimeWithEpisodesOut:
-    """Return anime metadata stored in DB + its episodes.
-
-    Frontend can use this to avoid extra requests and to build a working
-    player (stream URLs are generated from Telegram file_id).
-    """
+    """Return anime metadata stored in DB + its episodes."""
     anime = await db.scalar(select(Anime).filter(Anime.mal_id == mal_id))
     if not anime:
         raise HTTPException(status_code=404, detail="Anime not found")
@@ -226,6 +220,11 @@ async def post_comment(
     db: AsyncSession = Depends(get_db),
     user: Optional[User] = Depends(get_current_user),
 ):
+    if getattr(settings, "RATE_LIMIT_ENABLED", True):
+        rl = await rate_limiter.hit("comment", str(user.id if user else "guest"), 5, 60)
+        if not rl.allowed:
+            raise HTTPException(status_code=429, detail="Too many comments. Please wait.")
+
     comment = Comment(
         anime_mal_id=mal_id,
         user_id=user.id if user else None,
@@ -302,7 +301,6 @@ async def search(q: str = Query(..., min_length=1), db: AsyncSession = Depends(g
             })
             
     # Fallback: Search episodes directly if no anime found (or to augment results)
-    # This covers cases where episode label matches but anime title doesn't (rare but possible)
     if not data:
         stmt = select(Episode).join(Anime).filter(Episode.label.ilike(f"%{q}%"))
         result = await db.execute(stmt.limit(50))
@@ -329,10 +327,6 @@ async def stream_video(
 ):
     """
     Streams a Telegram-hosted media file with HTTP Range support (seekable playback).
-
-    - Supports single-range requests (e.g. `Range: bytes=0-` or `bytes=100-200` or `bytes=-500`)
-    - Returns `206 Partial Content` when Range is supplied
-    - Returns `416 Range Not Satisfiable` for invalid ranges
     """
     # Best-effort rate limit (per IP) to protect Telegram bandwidth
     if getattr(settings, "RATE_LIMIT_ENABLED", True):
@@ -376,7 +370,6 @@ async def stream_video(
             raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
         spec = rh[len("bytes="):].strip()
         if "," in spec:
-            # We don't support multipart ranges (most video players don't need them).
             raise HTTPException(status_code=416, detail="Multiple ranges not supported", headers={"Content-Range": f"bytes */{size}"})
         if "-" not in spec:
             raise HTTPException(status_code=416, detail="Range Not Satisfiable", headers={"Content-Range": f"bytes */{size}"})
@@ -429,7 +422,6 @@ async def stream_video(
         "Content-Length": str(content_length),
         "Content-Type": content_type,
         "ETag": etag,
-        # Streaming is usually personalized / expensive; keep caches conservative by default.
         "Cache-Control": "private, max-age=0, no-store",
     }
     if status_code == 206:
@@ -447,7 +439,6 @@ async def stream_video(
             raise
         except Exception as e:
             logger.error(f"Streaming error: {e}", exc_info=True)
-            # This will typically close the connection; status can't be changed mid-stream.
             raise
 
     return StreamingResponse(iterfile(), status_code=status_code, media_type=content_type, headers=headers)

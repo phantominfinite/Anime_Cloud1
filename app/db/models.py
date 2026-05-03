@@ -1,7 +1,20 @@
 from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, DateTime, UniqueConstraint, Index, Float, Text, Boolean
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.types import TypeDecorator
 from datetime import datetime
-from app.db.session import Base
+from app.db.session import Base, engine
+
+# Custom type to handle TSVECTOR gracefully on non-Postgres backends (like SQLite for dev/test)
+class PortableTSVector(TypeDecorator):
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(TSVECTOR())
+        else:
+            return dialect.type_descriptor(Text())
 
 class User(Base):
     __tablename__ = "users"
@@ -63,11 +76,18 @@ class Anime(Base):
     trailer_url = Column(String, nullable=True)
     rank = Column(Integer, nullable=True)
 
+    # Persistent search vector for optimized full-text search
+    search_vector = Column(PortableTSVector, nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     episodes = relationship("Episode", back_populates="anime", cascade="all, delete-orphan")
     comments = relationship("Comment", back_populates="anime", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('ix_anime_search_vector', 'search_vector', postgresql_using='gin'),
+    )
 
 class Comment(Base):
     __tablename__ = "comments"
