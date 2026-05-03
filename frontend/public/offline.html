@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline | AnimeCloud</title>
+    <style>
+        body {
+            background: #020203;
+            color: #fff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        h1 { font-size: 3rem; margin-bottom: 0; background: linear-gradient(to right, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        p { color: #888; margin-top: 10px; }
+        .retry-btn { margin-top: 30px; padding: 12px 30px; background: #8b5cf6; border: none; border-radius: 12px; color: white; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>OFFLINE</h1>
+    <p>You are currently disconnected. Check your internet connection.</p>
+    <button class="retry-btn" onclick="window.location.reload()">Retry Connection</button>
+</body>
+</html>

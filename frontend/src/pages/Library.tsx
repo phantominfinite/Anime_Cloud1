@@ -38,7 +38,7 @@ export default function Library() {
     if (!canUse) return;
     setLoading(true);
     try {
-      const res = tab === 'continue' ? await getContinueWatching() : await getLibrary();
+      const res = tab === 'continue' ? await getContinueWatching() : (await getLibrary() as { items: LibItem[] });
       const list: LibItem[] = res.items || [];
       setItems(list);
       await hydrate(list);

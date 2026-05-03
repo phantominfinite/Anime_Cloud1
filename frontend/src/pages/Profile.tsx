@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { getMe, getTelegramInitData } from '../services/api';
 import { Shield, User as UserIcon } from 'lucide-react';
 
+type UserData = { first_name?: string; username?: string; telegram_id?: string; is_admin?: boolean };
+
 export default function Profile() {
-  const [me, setMe] = useState<{ first_name?: string; username?: string; telegram_id?: string; is_admin?: boolean } | null>(null);
+  const [me, setMe] = useState<UserData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const initData = getTelegramInitData();
@@ -13,7 +15,7 @@ export default function Profile() {
       if (!initData) return;
       try {
         const res = await getMe();
-        setMe(res.user || res);
+        setMe((res.user || res) as UserData);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load profile');
       }
